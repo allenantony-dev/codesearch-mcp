@@ -14,6 +14,13 @@ import (
 
 const chunkSize = 50
 
+type Chunk struct {
+	text  string
+	path  string
+	start int
+	end   int
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		log.Fatal("Usage: go run . <repository-path>")
@@ -39,19 +46,28 @@ func main() {
 			}
 			lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
 			j := 1
-			var chunks []string
+			var chunks []Chunk
 			for i := 0; i < len(lines); i += chunkSize {
+				var chunk Chunk
 				end := min(i+chunkSize, len(lines))
-				chunk := strings.Join(lines[i:end], "\n")
-				if strings.TrimSpace(chunk) == "" {
+				chunk.text = strings.Join(lines[i:end], "\n")
+				if strings.TrimSpace(chunk.text) == "" {
 					continue
 				}
+				chunk.path = rel
+				chunk.start = i + 1
+				chunk.end = end
 				chunks = append(chunks, chunk)
 				fmt.Printf("Chunk %d\n Chunk start: %d\n Chunk end: %d\n", j, i+1, end)
 				j++
 			}
 
-			emb, err := embed(chunks)
+			texts := make([]string, len(chunks))
+			for k, c := range chunks {
+				texts[k] = c.text
+			}
+
+			emb, err := embed(texts)
 			fmt.Println("Embedding: ", emb)
 		}
 
