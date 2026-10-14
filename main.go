@@ -29,6 +29,11 @@ func main() {
 		log.Fatal("Usage: go run . <repository-path>")
 	}
 	repoRoot := os.Args[1]
+	abs, err := filepath.Abs(repoRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	repo := filepath.Base(abs)
 
 	ctx := context.Background()
 	conn, err := pgx.Connect(ctx, os.Getenv("DB_URL"))
@@ -71,7 +76,7 @@ func main() {
 			}
 
 			batch := &pgx.Batch{}
-			batch.Queue(`DELETE FROM code_embeddings WHERE path = $1`, rel)
+			batch.Queue(`DELETE FROM code_embeddings WHERE repo = $1 AND path = $2`, repo, rel)
 			if len(chunks) > 0 {
 				texts := make([]string, len(chunks))
 				for k, c := range chunks {
@@ -82,12 +87,11 @@ func main() {
 				if err != nil {
 					return err
 				}
-				fmt.Println("Embedding: ", emb)
 
 				for k, c := range chunks {
-					batch.Queue(`INSERT INTO code_embeddings (code, path, start_line, end_line, embedding)
-					VALUES ($1, $2, $3, $4, $5::real[]::vector)`,
-						c.text, c.path, c.start, c.end, emb[k])
+					batch.Queue(`INSERT INTO code_embeddings (repo, code, path, start_line, end_line, embedding)
+					VALUES ($1, $2, $3, $4, $5, $6::real[]::vector)`,
+						repo, c.text, c.path, c.start, c.end, emb[k])
 				}
 			}
 			return conn.SendBatch(ctx, batch).Close()
@@ -100,7 +104,7 @@ func main() {
 	if len(paths) == 0 {
 		log.Fatal("no .go files found. skipping cleanup")
 	}
-	if _, err := conn.Exec(ctx, `DELETE FROM code_embeddings WHERE path <> ALL($1)`, paths); err != nil {
+	if _, err := conn.Exec(ctx, `DELETE FROM code_embeddings WHERE repo = $1 AND path <> ALL($2)`, repo, paths); err != nil {
 		log.Fatal(err)
 	}
 }
