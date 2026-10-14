@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -10,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
 )
 
 const chunkSize = 50
@@ -27,8 +30,14 @@ func main() {
 	}
 	repoRoot := os.Args[1]
 
-	i := 1
-	err := filepath.WalkDir(repoRoot, func(path string, d fs.DirEntry, err error) error {
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, os.Getenv("DB_URL"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close(ctx)
+
+	err = filepath.WalkDir(repoRoot, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -38,14 +47,13 @@ func main() {
 			if err != nil {
 				return err
 			}
-			fmt.Printf("Go file %d found: %s\n", i, rel)
-			i++
+
 			data, err := os.ReadFile(path)
 			if err != nil {
 				return err
 			}
 			lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
-			j := 1
+
 			var chunks []Chunk
 			for i := 0; i < len(lines); i += chunkSize {
 				var chunk Chunk
@@ -58,8 +66,6 @@ func main() {
 				chunk.start = i + 1
 				chunk.end = end
 				chunks = append(chunks, chunk)
-				fmt.Printf("Chunk %d\n Chunk start: %d\n Chunk end: %d\n", j, i+1, end)
-				j++
 			}
 
 			texts := make([]string, len(chunks))
@@ -68,9 +74,19 @@ func main() {
 			}
 
 			emb, err := embed(texts)
+			if err != nil {
+				return err
+			}
 			fmt.Println("Embedding: ", emb)
-		}
 
+			batch := &pgx.Batch{}
+			for k, c := range chunks {
+				batch.Queue(`INSERT INTO code_embeddings (code, path, start_line, end_line, embedding)
+							 VALUES ($1, $2, $3, $4, $5::real[]::vector)`,
+					c.text, c.path, c.start, c.end, emb[k])
+			}
+			return conn.SendBatch(ctx, batch).Close()
+		}
 		return nil
 	})
 	if err != nil {
