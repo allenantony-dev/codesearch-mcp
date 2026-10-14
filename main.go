@@ -37,6 +37,7 @@ func main() {
 	}
 	defer conn.Close(ctx)
 
+	var paths []string
 	err = filepath.WalkDir(repoRoot, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -47,6 +48,7 @@ func main() {
 			if err != nil {
 				return err
 			}
+			paths = append(paths, rel)
 
 			data, err := os.ReadFile(path)
 			if err != nil {
@@ -93,6 +95,12 @@ func main() {
 		return nil
 	})
 	if err != nil {
+		log.Fatal(err)
+	}
+	if len(paths) == 0 {
+		log.Fatal("no .go files found. skipping cleanup")
+	}
+	if _, err := conn.Exec(ctx, `DELETE FROM code_embeddings WHERE path <> ALL($1)`, paths); err != nil {
 		log.Fatal(err)
 	}
 }
