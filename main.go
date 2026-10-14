@@ -68,22 +68,25 @@ func main() {
 				chunks = append(chunks, chunk)
 			}
 
-			texts := make([]string, len(chunks))
-			for k, c := range chunks {
-				texts[k] = c.text
-			}
-
-			emb, err := embed(texts)
-			if err != nil {
-				return err
-			}
-			fmt.Println("Embedding: ", emb)
-
 			batch := &pgx.Batch{}
-			for k, c := range chunks {
-				batch.Queue(`INSERT INTO code_embeddings (code, path, start_line, end_line, embedding)
-							 VALUES ($1, $2, $3, $4, $5::real[]::vector)`,
-					c.text, c.path, c.start, c.end, emb[k])
+			batch.Queue(`DELETE FROM code_embeddings WHERE path = $1`, rel)
+			if len(chunks) > 0 {
+				texts := make([]string, len(chunks))
+				for k, c := range chunks {
+					texts[k] = c.text
+				}
+
+				emb, err := embed(texts)
+				if err != nil {
+					return err
+				}
+				fmt.Println("Embedding: ", emb)
+
+				for k, c := range chunks {
+					batch.Queue(`INSERT INTO code_embeddings (code, path, start_line, end_line, embedding)
+					VALUES ($1, $2, $3, $4, $5::real[]::vector)`,
+						c.text, c.path, c.start, c.end, emb[k])
+				}
 			}
 			return conn.SendBatch(ctx, batch).Close()
 		}
