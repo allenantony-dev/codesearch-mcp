@@ -1,0 +1,94 @@
+[
+  {
+    "q": "why does the reaper put a job back to pending instead of leaving it running",
+    "expect": "taskq/internal/queue/postgres.go"
+  },
+  {
+    "q": "ErrPermanent",
+    "expect": "taskq/internal/worker/worker.go"
+  },
+  {
+    "q": "where is Dequeue defined",
+    "expect": "taskq/internal/queue/postgres.go"
+  },
+  {
+    "q": "how does the queue stop two workers claiming the same job",
+    "expect": "taskq/internal/queue/postgres.go"
+  },
+  {
+    "q": "how are duplicate enqueues of the same job prevented",
+    "expect": "taskq/internal/queue/postgres.go"
+  },
+  {
+    "q": "what stops a worker that lost its lease from marking the job done",
+    "expect": "taskq/internal/queue/postgres.go"
+  },
+  {
+    "q": "what happens to incoming requests when redis is down",
+    "expect": "ratelimit-gateway/proxy/main.go"
+  },
+  {
+    "q": "what are the retry delays between attempts",
+    "expect": "taskq/internal/worker/worker.go"
+  },
+  {
+    "q": "why does a failed job wait a random time instead of the full backoff",
+    "expect": "taskq/internal/worker/worker.go"
+  },
+  {
+    "q": "which goroutine keeps renewing the lease while a handler is running",
+    "expect": "taskq/internal/worker/worker.go"
+  },
+  {
+    "q": "PriorityNormal",
+    "expect": "taskq/internal/queue/task.go"
+  },
+  {
+    "q": "what fields does TaskStatus have",
+    "expect": "taskq/internal/queue/task.go"
+  },
+  {
+    "q": "how does the worker process shut down on SIGTERM",
+    "expect": "taskq/cmd/worker/main.go"
+  },
+  {
+    "q": "WORKER_CONCURRENCY",
+    "expect": "taskq/cmd/worker/main.go"
+  },
+  {
+    "q": "what status code is returned when an idempotency key is reused with a different payload",
+    "expect": "taskq/cmd/api/main.go"
+  },
+  {
+    "q": "TestDequeueSkipsLockedRows",
+    "expect": "taskq/internal/queue/postgres_test.go"
+  },
+  {
+    "q": "how often does the reaper run",
+    "expect": "taskq/cmd/reaper/main.go"
+  },
+  {
+    "q": "how is the token bucket refilled between requests",
+    "expect": "ratelimit-gateway/proxy/main.go"
+  },
+  {
+    "q": "what does the client do when it receives a 429",
+    "expect": "ratelimit-gateway/client/main.go"
+  },
+  {
+    "q": "what does the upstream echo back about the request it received",
+    "expect": "ratelimit-gateway/upstream/main.go"
+  },
+  {
+    "q": "how do route limits change without restarting the proxy",
+    "expect": "ratelimit-gateway/proxy/main.go"
+  },
+  {
+    "q": "what does the gateway return when too many requests are in flight at once",
+    "expect": "ratelimit-gateway/proxy/main.go"
+  },
+  {
+    "q": "how does the proxy stop /x/../login from slipping past the login limit",
+    "expect": "ratelimit-gateway/proxy/main.go"
+  }
+]

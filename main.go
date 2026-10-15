@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -24,9 +25,15 @@ type Chunk struct {
 	end   int
 }
 
+type Result struct {
+	repo, path, code string
+	start, end       int
+	distance         float64
+}
+
 func main() {
 	if len(os.Args) < 3 {
-		log.Fatal("Usage: go run . index <repository-path> | search <query>")
+		log.Fatal("Usage: go run . index <repository-path> | search <query> | eval <questions.json>")
 	}
 
 	ctx := context.Background()
@@ -40,7 +47,11 @@ func main() {
 	case "index":
 		index(ctx, conn, os.Args[2])
 	case "search":
-		search(ctx, conn, os.Args[2])
+		for _, r := range search(ctx, conn, os.Args[2]) {
+			fmt.Printf("%s/%s:%d-%d (distance %.3f)\n%s\n\n", r.repo, r.path, r.start, r.end, r.distance, r.code)
+		}
+	case "eval":
+		eval(ctx, conn, os.Args[2])
 	default:
 		log.Fatalf("unknown subcommand %q", os.Args[1])
 	}
@@ -121,7 +132,7 @@ func index(ctx context.Context, conn *pgx.Conn, path string) {
 	}
 }
 
-func search(ctx context.Context, conn *pgx.Conn, query string) {
+func search(ctx context.Context, conn *pgx.Conn, query string) []Result {
 	emb, err := embed([]string{query})
 	if err != nil {
 		log.Fatal(err)
@@ -138,18 +149,52 @@ func search(ctx context.Context, conn *pgx.Conn, query string) {
 	}
 	defer rows.Close()
 
+	var results []Result
 	for rows.Next() {
-		var repo, path, code string
-		var start, end int
-		var distance float64
-		if err := rows.Scan(&repo, &path, &start, &end, &code, &distance); err != nil {
+		var r Result
+		if err := rows.Scan(&r.repo, &r.path, &r.start, &r.end, &r.code, &r.distance); err != nil {
 			log.Fatal(err)
 		}
-		fmt.Printf("%s/%s:%d-%d (distance %.3f)\n%s\n\n", repo, path, start, end, distance, code)
+		results = append(results, r)
 	}
 	if err := rows.Err(); err != nil {
 		log.Fatal(err)
 	}
+	return results
+}
+
+// eval runs each question and prints the rank of the expected file (- if not
+// in the top 5), then recall@3 and recall@5.
+func eval(ctx context.Context, conn *pgx.Conn, file string) {
+	data, err := os.ReadFile(file)
+	if err != nil {
+		log.Fatal(err)
+	}
+	var questions []struct {
+		Q      string `json:"q"`
+		Expect string `json:"expect"`
+	}
+	if err := json.Unmarshal(data, &questions); err != nil {
+		log.Fatal(err)
+	}
+
+	var hit3, hit5 int
+	for _, q := range questions {
+		rank := "-"
+		for i, r := range search(ctx, conn, q.Q) {
+			if r.repo+"/"+r.path == q.Expect {
+				rank = strconv.Itoa(i + 1)
+				if i < 3 {
+					hit3++
+				}
+				hit5++
+				break
+			}
+		}
+		fmt.Printf("%s  %s\n", rank, q.Q)
+	}
+	n := float64(len(questions))
+	fmt.Printf("\nrecall@3: %.2f  recall@5: %.2f  (%d questions)\n", float64(hit3)/n, float64(hit5)/n, len(questions))
 }
 
 func embed(chunks []string) ([][]float32, error) {
