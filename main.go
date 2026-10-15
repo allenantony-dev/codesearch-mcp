@@ -25,15 +25,9 @@ type Chunk struct {
 }
 
 func main() {
-	if len(os.Args) < 2 {
-		log.Fatal("Usage: go run . <repository-path>")
+	if len(os.Args) < 3 {
+		log.Fatal("Usage: go run . index <repository-path> | search <query>")
 	}
-	repoRoot := os.Args[1]
-	abs, err := filepath.Abs(repoRoot)
-	if err != nil {
-		log.Fatal(err)
-	}
-	repo := filepath.Base(abs)
 
 	ctx := context.Background()
 	conn, err := pgx.Connect(ctx, os.Getenv("DB_URL"))
@@ -41,6 +35,24 @@ func main() {
 		log.Fatal(err)
 	}
 	defer conn.Close(ctx)
+
+	switch os.Args[1] {
+	case "index":
+		index(ctx, conn, os.Args[2])
+	case "search":
+		search(ctx, conn, os.Args[2])
+	default:
+		log.Fatalf("unknown subcommand %q", os.Args[1])
+	}
+}
+
+func index(ctx context.Context, conn *pgx.Conn, path string) {
+	repoRoot := path
+	abs, err := filepath.Abs(repoRoot)
+	if err != nil {
+		log.Fatal(err)
+	}
+	repo := filepath.Base(abs)
 
 	var paths []string
 	err = filepath.WalkDir(repoRoot, func(path string, d fs.DirEntry, err error) error {
@@ -105,6 +117,37 @@ func main() {
 		log.Fatal("no .go files found. skipping cleanup")
 	}
 	if _, err := conn.Exec(ctx, `DELETE FROM code_embeddings WHERE repo = $1 AND path <> ALL($2)`, repo, paths); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func search(ctx context.Context, conn *pgx.Conn, query string) {
+	emb, err := embed([]string{query})
+	if err != nil {
+		log.Fatal(err)
+	}
+	rows, err := conn.Query(ctx,
+		`SELECT repo, path, start_line, end_line, code, embedding <=> $1::real[]::vector AS distance
+		 FROM code_embeddings
+		 ORDER BY distance
+		 LIMIT 5`,
+		emb[0],
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var repo, path, code string
+		var start, end int
+		var distance float64
+		if err := rows.Scan(&repo, &path, &start, &end, &code, &distance); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("%s/%s:%d-%d (distance %.3f)\n%s\n\n", repo, path, start, end, distance, code)
+	}
+	if err := rows.Err(); err != nil {
 		log.Fatal(err)
 	}
 }
