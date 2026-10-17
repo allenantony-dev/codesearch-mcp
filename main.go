@@ -28,12 +28,12 @@ type Chunk struct {
 type Result struct {
 	repo, path, code string
 	start, end       int
-	distance         float64
+	score            float64
 }
 
 func main() {
 	if len(os.Args) < 3 {
-		log.Fatal("Usage: go run . index <repository-path> | search <query> | eval <questions.json>")
+		log.Fatal("Usage: go run . index <repository-path> | search|keyword <query> | eval <questions.json> [keyword]")
 	}
 
 	ctx := context.Background()
@@ -46,12 +46,12 @@ func main() {
 	switch os.Args[1] {
 	case "index":
 		index(ctx, conn, os.Args[2])
-	case "search":
-		for _, r := range search(ctx, conn, os.Args[2]) {
-			fmt.Printf("%s/%s:%d-%d (distance %.3f)\n%s\n\n", r.repo, r.path, r.start, r.end, r.distance, r.code)
+	case "search", "keyword":
+		for _, r := range search(ctx, conn, os.Args[2], os.Args[1] == "keyword") {
+			fmt.Printf("%s/%s:%d-%d (score %.3f)\n%s\n\n", r.repo, r.path, r.start, r.end, r.score, r.code)
 		}
 	case "eval":
-		eval(ctx, conn, os.Args[2])
+		eval(ctx, conn, os.Args[2], len(os.Args) > 3 && os.Args[3] == "keyword")
 	default:
 		log.Fatalf("unknown subcommand %q", os.Args[1])
 	}
@@ -132,18 +132,28 @@ func index(ctx context.Context, conn *pgx.Conn, path string) {
 	}
 }
 
-func search(ctx context.Context, conn *pgx.Conn, query string) []Result {
-	emb, err := embed([]string{query})
-	if err != nil {
-		log.Fatal(err)
-	}
-	rows, err := conn.Query(ctx,
-		`SELECT repo, path, start_line, end_line, code, embedding <=> $1::real[]::vector AS distance
+// search returns the top 5 chunks. Vector search scores by cosine distance
+// (lower is closer); keyword search scores by ts_rank (higher is better).
+func search(ctx context.Context, conn *pgx.Conn, query string, keyword bool) []Result {
+	sql := `SELECT repo, path, start_line, end_line, code, embedding <=> $1::real[]::vector AS score
 		 FROM code_embeddings
-		 ORDER BY distance
-		 LIMIT 5`,
-		emb[0],
-	)
+		 ORDER BY score
+		 LIMIT 5`
+	var arg any = query
+	if keyword {
+		sql = `SELECT repo, path, start_line, end_line, code, ts_rank(tsv, q) AS score
+		 FROM code_embeddings, websearch_to_tsquery('simple', $1) q
+		 WHERE tsv @@ q
+		 ORDER BY score DESC
+		 LIMIT 5`
+	} else {
+		emb, err := embed([]string{query})
+		if err != nil {
+			log.Fatal(err)
+		}
+		arg = emb[0]
+	}
+	rows, err := conn.Query(ctx, sql, arg)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -152,7 +162,7 @@ func search(ctx context.Context, conn *pgx.Conn, query string) []Result {
 	var results []Result
 	for rows.Next() {
 		var r Result
-		if err := rows.Scan(&r.repo, &r.path, &r.start, &r.end, &r.code, &r.distance); err != nil {
+		if err := rows.Scan(&r.repo, &r.path, &r.start, &r.end, &r.code, &r.score); err != nil {
 			log.Fatal(err)
 		}
 		results = append(results, r)
@@ -165,7 +175,7 @@ func search(ctx context.Context, conn *pgx.Conn, query string) []Result {
 
 // eval runs each question and prints the rank of the expected file (- if not
 // in the top 5), then recall@3 and recall@5.
-func eval(ctx context.Context, conn *pgx.Conn, file string) {
+func eval(ctx context.Context, conn *pgx.Conn, file string, keyword bool) {
 	data, err := os.ReadFile(file)
 	if err != nil {
 		log.Fatal(err)
@@ -181,7 +191,7 @@ func eval(ctx context.Context, conn *pgx.Conn, file string) {
 	var hit3, hit5 int
 	for _, q := range questions {
 		rank := "-"
-		for i, r := range search(ctx, conn, q.Q) {
+		for i, r := range search(ctx, conn, q.Q, keyword) {
 			if r.repo+"/"+r.path == q.Expect {
 				rank = strconv.Itoa(i + 1)
 				if i < 3 {

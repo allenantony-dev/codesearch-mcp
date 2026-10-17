@@ -6,5 +6,7 @@ CREATE TABLE code_embeddings (
     path       TEXT NOT NULL,
     start_line INTEGER NOT NULL,
     end_line   INTEGER NOT NULL,
-    embedding  VECTOR(768) NOT NULL
+    embedding  VECTOR(768) NOT NULL,
+    tsv        TSVECTOR GENERATED ALWAYS AS (to_tsvector('simple', code)) STORED
 );
+CREATE INDEX ON code_embeddings USING GIN (tsv);
