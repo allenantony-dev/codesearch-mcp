@@ -22,6 +22,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+const minChunkLines = 30
+
 type Chunk struct {
 	text  string
 	path  string
@@ -51,7 +53,7 @@ func main() {
 	case "index":
 		index(ctx, conn, os.Args[2])
 	case "search", "keyword", "hybrid":
-		for _, r := range find(ctx, conn, os.Args[2], os.Args[1]) {
+		for _, r := range find(ctx, conn, os.Args[2], os.Args[1], 5) {
 			fmt.Printf("%s/%s:%d-%d (score %.3f)\n%s\n\n", r.repo, r.path, r.start, r.end, r.score, r.code)
 		}
 	case "eval":
@@ -97,9 +99,12 @@ func index(ctx context.Context, conn *pgx.Conn, path string) {
 			}
 			lines := strings.Split(string(data), "\n")
 
-			// One chunk per top-level declaration, including its doc comment.
-			// Imports are skipped: on their own they match everything vaguely.
+			// Top-level declarations (with doc comments) are collected in file
+			// order until a chunk spans minChunkLines, so small vars and consts
+			// share a chunk instead of becoming near-empty ones. Imports are
+			// skipped: on their own they match everything vaguely.
 			var chunks []Chunk
+			open := 0 // start line of the chunk being collected, 0 if none
 			for _, decl := range file.Decls {
 				pos := decl.Pos()
 				switch d := decl.(type) {
@@ -115,13 +120,25 @@ func index(ctx context.Context, conn *pgx.Conn, path string) {
 						pos = d.Doc.Pos()
 					}
 				}
-				start, end := fset.Position(pos).Line, fset.Position(decl.End()).Line
-				chunks = append(chunks, Chunk{
-					text:  strings.Join(lines[start-1:end], "\n"),
-					path:  rel,
-					start: start,
-					end:   end,
-				})
+				if open == 0 {
+					open = fset.Position(pos).Line
+				}
+				end := fset.Position(decl.End()).Line
+				if end-open+1 >= minChunkLines {
+					chunks = append(chunks, Chunk{path: rel, start: open, end: end})
+					open = 0
+				} else if decl == file.Decls[len(file.Decls)-1] {
+					// A short leftover at the end of the file joins the previous
+					// chunk rather than becoming a tail fragment.
+					if len(chunks) > 0 {
+						chunks[len(chunks)-1].end = end
+					} else {
+						chunks = append(chunks, Chunk{path: rel, start: open, end: end})
+					}
+				}
+			}
+			for i, c := range chunks {
+				chunks[i].text = strings.Join(lines[c.start-1:c.end], "\n")
 			}
 
 			batch := &pgx.Batch{}
@@ -158,28 +175,28 @@ func index(ctx context.Context, conn *pgx.Conn, path string) {
 	}
 }
 
-// find returns the top 5 chunks for a mode: search (vector), keyword or hybrid.
-func find(ctx context.Context, conn *pgx.Conn, query, mode string) []Result {
+// find returns the top limit chunks for a mode: search (vector), keyword or hybrid.
+func find(ctx context.Context, conn *pgx.Conn, query, mode string, limit int) []Result {
 	switch mode {
 	case "keyword":
-		return search(ctx, conn, query, true, 5)
+		return search(ctx, conn, query, true, limit)
 	case "hybrid":
-		return hybrid(ctx, conn, query)
+		return hybrid(ctx, conn, query, limit)
 	default:
-		return search(ctx, conn, query, false, 5)
+		return search(ctx, conn, query, false, limit)
 	}
 }
 
 // hybrid fuses the top 20 of vector and keyword search with Reciprocal Rank
 // Fusion: each list adds 1/(60+rank) to a chunk, so only positions matter and
 // the two incomparable score scales never meet.
-func hybrid(ctx context.Context, conn *pgx.Conn, query string) []Result {
+func hybrid(ctx context.Context, conn *pgx.Conn, query string, limit int) []Result {
 	type key struct {
 		repo, path string
 		start      int
 	}
 	fused := map[key]Result{}
-	for _, list := range [][]Result{search(ctx, conn, query, false, 20), search(ctx, conn, query, true, 20)} {
+	for _, list := range [][]Result{search(ctx, conn, query, false, max(20, limit)), search(ctx, conn, query, true, max(20, limit))} {
 		for i, r := range list {
 			k := key{r.repo, r.path, r.start}
 			r.score = fused[k].score + 1/float64(60+i+1)
@@ -198,7 +215,7 @@ func hybrid(ctx context.Context, conn *pgx.Conn, query string) []Result {
 			cmp.Compare(a.start, b.start),
 		)
 	})
-	return results[:min(5, len(results))]
+	return results[:min(limit, len(results))]
 }
 
 // search returns the top limit chunks. Vector search scores by cosine distance
@@ -243,7 +260,9 @@ func search(ctx context.Context, conn *pgx.Conn, query string, keyword bool, lim
 }
 
 // eval runs each question and prints the rank of the first chunk that contains
-// the expected line (- if none in the top 5), then recall@3 and recall@5.
+// the expected line (- if none in the top 5), then recall@3 and recall@5, and
+// recall within a fixed number of returned lines. The line budgets compare
+// chunkings fairly: top 5 of big chunks returns more code than top 5 of small.
 func eval(ctx context.Context, conn *pgx.Conn, file, mode string) {
 	data, err := os.ReadFile(file)
 	if err != nil {
@@ -258,23 +277,37 @@ func eval(ctx context.Context, conn *pgx.Conn, file, mode string) {
 		log.Fatal(err)
 	}
 
+	budgets := []int{125, 250}
 	var hit3, hit5 int
+	hitBudget := make([]int, len(budgets))
 	for _, q := range questions {
 		rank := "-"
-		for i, r := range find(ctx, conn, q.Q, mode) {
-			if r.repo+"/"+r.path == q.Expect && r.start <= q.Line && q.Line <= r.end {
+		lines := 0
+		for i, r := range find(ctx, conn, q.Q, mode, 30) {
+			lines += r.end - r.start + 1
+			if r.repo+"/"+r.path != q.Expect || q.Line < r.start || r.end < q.Line {
+				continue
+			}
+			if i < 5 {
 				rank = strconv.Itoa(i + 1)
 				if i < 3 {
 					hit3++
 				}
 				hit5++
-				break
 			}
+			// A chunk counts only if it fits in the budget without going over.
+			for b, budget := range budgets {
+				if lines <= budget {
+					hitBudget[b]++
+				}
+			}
+			break
 		}
 		fmt.Printf("%s  %s\n", rank, q.Q)
 	}
 	n := float64(len(questions))
-	fmt.Printf("\nrecall@3: %.2f  recall@5: %.2f  (%d questions)\n", float64(hit3)/n, float64(hit5)/n, len(questions))
+	fmt.Printf("\nrecall@3: %.2f  recall@5: %.2f  within 125 lines: %.2f  within 250 lines: %.2f  (%d questions)\n",
+		float64(hit3)/n, float64(hit5)/n, float64(hitBudget[0])/n, float64(hitBudget[1])/n, len(questions))
 }
 
 func embed(chunks []string) ([][]float32, error) {
