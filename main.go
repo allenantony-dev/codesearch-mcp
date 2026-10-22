@@ -6,6 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io/fs"
 	"log"
 	"maps"
@@ -18,8 +21,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 )
-
-const chunkSize = 50
 
 type Chunk struct {
 	text  string
@@ -89,20 +90,38 @@ func index(ctx context.Context, conn *pgx.Conn, path string) {
 			if err != nil {
 				return err
 			}
-			lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+			fset := token.NewFileSet()
+			file, err := parser.ParseFile(fset, path, data, parser.ParseComments)
+			if err != nil {
+				return err
+			}
+			lines := strings.Split(string(data), "\n")
 
+			// One chunk per top-level declaration, including its doc comment.
+			// Imports are skipped: on their own they match everything vaguely.
 			var chunks []Chunk
-			for i := 0; i < len(lines); i += chunkSize {
-				var chunk Chunk
-				end := min(i+chunkSize, len(lines))
-				chunk.text = strings.Join(lines[i:end], "\n")
-				if strings.TrimSpace(chunk.text) == "" {
-					continue
+			for _, decl := range file.Decls {
+				pos := decl.Pos()
+				switch d := decl.(type) {
+				case *ast.GenDecl:
+					if d.Tok == token.IMPORT {
+						continue
+					}
+					if d.Doc != nil {
+						pos = d.Doc.Pos()
+					}
+				case *ast.FuncDecl:
+					if d.Doc != nil {
+						pos = d.Doc.Pos()
+					}
 				}
-				chunk.path = rel
-				chunk.start = i + 1
-				chunk.end = end
-				chunks = append(chunks, chunk)
+				start, end := fset.Position(pos).Line, fset.Position(decl.End()).Line
+				chunks = append(chunks, Chunk{
+					text:  strings.Join(lines[start-1:end], "\n"),
+					path:  rel,
+					start: start,
+					end:   end,
+				})
 			}
 
 			batch := &pgx.Batch{}
