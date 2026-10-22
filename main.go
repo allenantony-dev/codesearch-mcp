@@ -15,8 +15,10 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 const chunkSize = 50
@@ -35,8 +37,8 @@ type Result struct {
 }
 
 func main() {
-	if len(os.Args) < 3 {
-		log.Fatal("Usage: go run . index <repository-path> | search|keyword|hybrid <query> | eval <questions.json> [keyword|hybrid]")
+	if len(os.Args) < 2 || (os.Args[1] != "mcp" && len(os.Args) < 3) {
+		log.Fatal("Usage: go run . index <repository-path> | search|keyword|hybrid <query> | eval <questions.json> [keyword|hybrid] | mcp")
 	}
 
 	ctx := context.Background()
@@ -53,6 +55,8 @@ func main() {
 		for _, r := range find(ctx, conn, os.Args[2], os.Args[1], 5) {
 			fmt.Printf("%s/%s:%d-%d (score %.3f)\n%s\n\n", r.repo, r.path, r.start, r.end, r.score, r.code)
 		}
+	case "mcp":
+		serve(ctx, conn)
 	case "eval":
 		mode := "search"
 		if len(os.Args) > 3 {
@@ -314,4 +318,34 @@ func embed(chunks []string) ([][]float32, error) {
 	}
 
 	return embedResponse.Embeddings, nil
+}
+
+// serve runs an MCP server on stdin/stdout with one tool, search_code, which
+// returns the top 5 hybrid results (about 250 lines with 50-line chunks:
+// eval found the answer within 250 lines 57% of the time, 125 lines 39%).
+func serve(ctx context.Context, conn *pgx.Conn) {
+	type args struct {
+		Query string `json:"query" jsonschema:"what to look for: a question about the code or an exact identifier"`
+	}
+	var mu sync.Mutex // a pgx.Conn is not safe for concurrent tool calls
+
+	server := mcp.NewServer(&mcp.Implementation{Name: "codesearch", Version: "0.1.0"}, nil)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "search_code",
+		Description: "Search the indexed Go repos (taskq, ratelimit-gateway) by meaning and exact identifiers. Returns the 5 best chunks, each headed by repo/path:start-end; read the file around a result for more context.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in args) (*mcp.CallToolResult, any, error) {
+		mu.Lock()
+		results := find(ctx, conn, in.Query, "hybrid", 5)
+		mu.Unlock()
+
+		var b strings.Builder
+		for _, r := range results {
+			fmt.Fprintf(&b, "%s/%s:%d-%d\n```go\n%s\n```\n\n", r.repo, r.path, r.start, r.end, r.code)
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: b.String()}}}, nil, nil
+	})
+
+	if err := server.Run(ctx, &mcp.StdioTransport{}); err != nil {
+		log.Fatal(err)
+	}
 }
