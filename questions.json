@@ -1,94 +1,117 @@
 [
   {
     "q": "why does the reaper put a job back to pending instead of leaving it running",
-    "expect": "taskq/internal/queue/postgres.go"
+    "expect": "taskq/internal/queue/postgres.go",
+    "line": 306
   },
   {
     "q": "ErrPermanent",
-    "expect": "taskq/internal/worker/worker.go"
+    "expect": "taskq/internal/worker/worker.go",
+    "line": 18
   },
   {
     "q": "where is Dequeue defined",
-    "expect": "taskq/internal/queue/postgres.go"
+    "expect": "taskq/internal/queue/postgres.go",
+    "line": 126
   },
   {
     "q": "how does the queue stop two workers claiming the same job",
-    "expect": "taskq/internal/queue/postgres.go"
+    "expect": "taskq/internal/queue/postgres.go",
+    "line": 147
   },
   {
     "q": "how are duplicate enqueues of the same job prevented",
-    "expect": "taskq/internal/queue/postgres.go"
+    "expect": "taskq/internal/queue/postgres.go",
+    "line": 54
   },
   {
     "q": "what stops a worker that lost its lease from marking the job done",
-    "expect": "taskq/internal/queue/postgres.go"
+    "expect": "taskq/internal/queue/postgres.go",
+    "line": 208
   },
   {
     "q": "what happens to incoming requests when redis is down",
-    "expect": "ratelimit-gateway/proxy/main.go"
+    "expect": "ratelimit-gateway/proxy/main.go",
+    "line": 155
   },
   {
     "q": "what are the retry delays between attempts",
-    "expect": "taskq/internal/worker/worker.go"
+    "expect": "taskq/internal/worker/worker.go",
+    "line": 14
   },
   {
     "q": "why does a failed job wait a random time instead of the full backoff",
-    "expect": "taskq/internal/worker/worker.go"
+    "expect": "taskq/internal/worker/worker.go",
+    "line": 140
   },
   {
     "q": "which goroutine keeps renewing the lease while a handler is running",
-    "expect": "taskq/internal/worker/worker.go"
+    "expect": "taskq/internal/worker/worker.go",
+    "line": 154
   },
   {
     "q": "PriorityNormal",
-    "expect": "taskq/internal/queue/task.go"
+    "expect": "taskq/internal/queue/task.go",
+    "line": 6
   },
   {
     "q": "what fields does TaskStatus have",
-    "expect": "taskq/internal/queue/task.go"
+    "expect": "taskq/internal/queue/task.go",
+    "line": 21
   },
   {
     "q": "how does the worker process shut down on SIGTERM",
-    "expect": "taskq/cmd/worker/main.go"
+    "expect": "taskq/cmd/worker/main.go",
+    "line": 133
   },
   {
     "q": "WORKER_CONCURRENCY",
-    "expect": "taskq/cmd/worker/main.go"
+    "expect": "taskq/cmd/worker/main.go",
+    "line": 47
   },
   {
     "q": "what status code is returned when an idempotency key is reused with a different payload",
-    "expect": "taskq/cmd/api/main.go"
+    "expect": "taskq/cmd/api/main.go",
+    "line": 72
   },
   {
     "q": "TestDequeueSkipsLockedRows",
-    "expect": "taskq/internal/queue/postgres_test.go"
+    "expect": "taskq/internal/queue/postgres_test.go",
+    "line": 122
   },
   {
     "q": "how often does the reaper run",
-    "expect": "taskq/cmd/reaper/main.go"
+    "expect": "taskq/cmd/reaper/main.go",
+    "line": 45
   },
   {
     "q": "how is the token bucket refilled between requests",
-    "expect": "ratelimit-gateway/proxy/main.go"
+    "expect": "ratelimit-gateway/proxy/main.go",
+    "line": 121
   },
   {
     "q": "what does the client do when it receives a 429",
-    "expect": "ratelimit-gateway/client/main.go"
+    "expect": "ratelimit-gateway/client/main.go",
+    "line": 107
   },
   {
     "q": "what does the upstream echo back about the request it received",
-    "expect": "ratelimit-gateway/upstream/main.go"
+    "expect": "ratelimit-gateway/upstream/main.go",
+    "line": 12
   },
   {
     "q": "how do route limits change without restarting the proxy",
-    "expect": "ratelimit-gateway/proxy/main.go"
+    "expect": "ratelimit-gateway/proxy/main.go",
+    "line": 89
   },
   {
     "q": "what does the gateway return when too many requests are in flight at once",
-    "expect": "ratelimit-gateway/proxy/main.go"
+    "expect": "ratelimit-gateway/proxy/main.go",
+    "line": 201
   },
   {
     "q": "how does the proxy stop /x/../login from slipping past the login limit",
-    "expect": "ratelimit-gateway/proxy/main.go"
+    "expect": "ratelimit-gateway/proxy/main.go",
+    "line": 98
   }
 ]

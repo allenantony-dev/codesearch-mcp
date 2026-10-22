@@ -242,8 +242,8 @@ func search(ctx context.Context, conn *pgx.Conn, query string, keyword bool, lim
 	return results
 }
 
-// eval runs each question and prints the rank of the expected file (- if not
-// in the top 5), then recall@3 and recall@5.
+// eval runs each question and prints the rank of the first chunk that contains
+// the expected line (- if none in the top 5), then recall@3 and recall@5.
 func eval(ctx context.Context, conn *pgx.Conn, file, mode string) {
 	data, err := os.ReadFile(file)
 	if err != nil {
@@ -252,6 +252,7 @@ func eval(ctx context.Context, conn *pgx.Conn, file, mode string) {
 	var questions []struct {
 		Q      string `json:"q"`
 		Expect string `json:"expect"`
+		Line   int    `json:"line"`
 	}
 	if err := json.Unmarshal(data, &questions); err != nil {
 		log.Fatal(err)
@@ -261,7 +262,7 @@ func eval(ctx context.Context, conn *pgx.Conn, file, mode string) {
 	for _, q := range questions {
 		rank := "-"
 		for i, r := range find(ctx, conn, q.Q, mode) {
-			if r.repo+"/"+r.path == q.Expect {
+			if r.repo+"/"+r.path == q.Expect && r.start <= q.Line && q.Line <= r.end {
 				rank = strconv.Itoa(i + 1)
 				if i < 3 {
 					hit3++
