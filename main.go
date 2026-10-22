@@ -6,9 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"io/fs"
 	"log"
 	"maps"
@@ -22,7 +19,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const minChunkLines = 30
+const chunkSize = 50
 
 type Chunk struct {
 	text  string
@@ -92,53 +89,20 @@ func index(ctx context.Context, conn *pgx.Conn, path string) {
 			if err != nil {
 				return err
 			}
-			fset := token.NewFileSet()
-			file, err := parser.ParseFile(fset, path, data, parser.ParseComments)
-			if err != nil {
-				return err
-			}
-			lines := strings.Split(string(data), "\n")
+			lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
 
-			// Top-level declarations (with doc comments) are collected in file
-			// order until a chunk spans minChunkLines, so small vars and consts
-			// share a chunk instead of becoming near-empty ones. Imports are
-			// skipped: on their own they match everything vaguely.
 			var chunks []Chunk
-			open := 0 // start line of the chunk being collected, 0 if none
-			for _, decl := range file.Decls {
-				pos := decl.Pos()
-				switch d := decl.(type) {
-				case *ast.GenDecl:
-					if d.Tok == token.IMPORT {
-						continue
-					}
-					if d.Doc != nil {
-						pos = d.Doc.Pos()
-					}
-				case *ast.FuncDecl:
-					if d.Doc != nil {
-						pos = d.Doc.Pos()
-					}
+			for i := 0; i < len(lines); i += chunkSize {
+				var chunk Chunk
+				end := min(i+chunkSize, len(lines))
+				chunk.text = strings.Join(lines[i:end], "\n")
+				if strings.TrimSpace(chunk.text) == "" {
+					continue
 				}
-				if open == 0 {
-					open = fset.Position(pos).Line
-				}
-				end := fset.Position(decl.End()).Line
-				if end-open+1 >= minChunkLines {
-					chunks = append(chunks, Chunk{path: rel, start: open, end: end})
-					open = 0
-				} else if decl == file.Decls[len(file.Decls)-1] {
-					// A short leftover at the end of the file joins the previous
-					// chunk rather than becoming a tail fragment.
-					if len(chunks) > 0 {
-						chunks[len(chunks)-1].end = end
-					} else {
-						chunks = append(chunks, Chunk{path: rel, start: open, end: end})
-					}
-				}
-			}
-			for i, c := range chunks {
-				chunks[i].text = strings.Join(lines[c.start-1:c.end], "\n")
+				chunk.path = rel
+				chunk.start = i + 1
+				chunk.end = end
+				chunks = append(chunks, chunk)
 			}
 
 			batch := &pgx.Batch{}
