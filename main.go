@@ -338,8 +338,9 @@ func embed(chunks []string) ([][]float32, error) {
 }
 
 // serve runs an MCP server on stdin/stdout with one tool, search_code, which
-// returns the top 5 hybrid results (about 250 lines with 50-line chunks:
-// eval found the answer within 250 lines 57% of the time, 125 lines 39%).
+// returns the top 10 hybrid results. 10 is chosen on cost, not on eval deltas
+// (too noisy at this corpus size): 10 chunks are about 4K tokens, ~2% of the
+// client's context, while a miss costs another round trip and a partial answer.
 func serve(ctx context.Context, conn *pgxpool.Pool) {
 	type args struct {
 		Query string `json:"query" jsonschema:"what to look for: a question about the code or an exact identifier"`
@@ -347,9 +348,9 @@ func serve(ctx context.Context, conn *pgxpool.Pool) {
 	server := mcp.NewServer(&mcp.Implementation{Name: "codesearch", Version: "0.1.0"}, nil)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "search_code",
-		Description: "Search the indexed Go repos (taskq, ratelimit-gateway) by meaning and exact identifiers. Returns the 5 best chunks, each headed by repo/path:start-end; read the file around a result for more context.",
+		Description: "Search the indexed Go repos (taskq, ratelimit-gateway) by meaning and exact identifiers. Returns the 10 best chunks, each headed by repo/path:start-end; read the file around a result for more context.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in args) (*mcp.CallToolResult, any, error) {
-		results, err := find(ctx, conn, in.Query, "hybrid", 5)
+		results, err := find(ctx, conn, in.Query, "hybrid", 10)
 		if err != nil {
 			// The SDK sends this to the client as a tool error; the server keeps running.
 			return nil, nil, fmt.Errorf("search unavailable: %w", err)
