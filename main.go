@@ -317,7 +317,8 @@ func ask(ctx context.Context, conn *pgxpool.Pool, question string) {
 		"model":  cmp.Or(os.Getenv("ASK_MODEL"), "qwen2.5-coder:7b"),
 		"prompt": b.String(),
 		"stream": false,
-		// Ollama's default context is smaller than 5 chunks and silently cuts the prompt.
+		// num_ctx covers prompt and reply, and Ollama silently cuts a prompt that
+		// doesn't fit. 8192 leaves room for 5 chunks and an answer on any default.
 		"options": map[string]any{"num_ctx": 8192},
 	})
 	if err != nil {
