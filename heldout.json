@@ -1,0 +1,17 @@
+[
+  {"q": "How does a worker claiming a job avoid blocking on a row another worker already has locked?", "expect": "taskq/internal/queue/postgres.go", "line": 147},
+  {"q": "Why do Complete, Retry and Dead use their own timeout instead of the caller's context?", "expect": "taskq/internal/queue/postgres.go", "line": 17},
+  {"q": "What state does the reaper put an expired job in once it has used up all its attempts?", "expect": "taskq/internal/queue/postgres.go", "line": 306},
+  {"q": "How does the report handler stop a stale worker from overwriting a report written by a newer claim?", "expect": "taskq/cmd/worker/main.go", "line": 95},
+  {"q": "What does the jobs API return when an Idempotency-Key is reused for a different payload?", "expect": "taskq/cmd/api/main.go", "line": 72},
+  {"q": "Where is it tested that a worker which doesn't own a job can't complete, retry or heartbeat it?", "expect": "taskq/internal/queue/postgres_test.go", "line": 74},
+  {"q": "Which test case shows that with max_attempts 5, the fifth failure is the one that ends the job?", "expect": "taskq/internal/worker/worker_test.go", "line": 45},
+  {"q": "What does the gateway do with a request when Redis doesn't answer the rate-limit check?", "expect": "ratelimit-gateway/proxy/main.go", "line": 155},
+  {"q": "Why can't a client dodge a strict route limit by requesting /x/../login instead of /login?", "expect": "ratelimit-gateway/proxy/main.go", "line": 98},
+  {"q": "How does the load-test client decide how long to wait after getting a 429?", "expect": "ratelimit-gateway/client/main.go", "line": 107},
+  {"q": "ErrPermanent", "expect": "taskq/internal/worker/worker.go", "line": 18},
+  {"q": "WORKER_CONCURRENCY", "expect": "taskq/cmd/worker/main.go", "line": 47},
+  {"q": "TestKeylessEnqueuesDoNotCollide", "expect": "taskq/internal/queue/postgres_test.go", "line": 377},
+  {"q": "maxInFlight", "expect": "ratelimit-gateway/proxy/main.go", "line": 25},
+  {"q": "REDIS_ADDR", "expect": "ratelimit-gateway/proxy/main.go", "line": 261}
+]

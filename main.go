@@ -238,7 +238,7 @@ func search(ctx context.Context, conn *pgxpool.Pool, query string, keyword bool,
 }
 
 // eval runs each question and prints the rank of the first chunk that contains
-// the expected line (- if none in the top 5), then recall@3 and recall@5, and
+// the expected line (- if none in the top 10), then recall@3, @5 and @10, and
 // recall within a fixed number of returned lines. The line budgets compare
 // chunkings fairly: top 5 of big chunks returns more code than top 5 of small.
 func eval(ctx context.Context, conn *pgxpool.Pool, file, mode string) {
@@ -256,7 +256,7 @@ func eval(ctx context.Context, conn *pgxpool.Pool, file, mode string) {
 	}
 
 	budgets := []int{125, 250}
-	var hit3, hit5 int
+	var hit3, hit5, hit10 int
 	hitBudget := make([]int, len(budgets))
 	for _, q := range questions {
 		rank := "-"
@@ -270,12 +270,15 @@ func eval(ctx context.Context, conn *pgxpool.Pool, file, mode string) {
 			if r.repo+"/"+r.path != q.Expect || q.Line < r.start || r.end < q.Line {
 				continue
 			}
-			if i < 5 {
+			if i < 10 {
 				rank = strconv.Itoa(i + 1)
-				if i < 3 {
-					hit3++
-				}
+				hit10++
+			}
+			if i < 5 {
 				hit5++
+			}
+			if i < 3 {
+				hit3++
 			}
 			// A chunk counts only if it fits in the budget without going over.
 			for b, budget := range budgets {
@@ -288,8 +291,8 @@ func eval(ctx context.Context, conn *pgxpool.Pool, file, mode string) {
 		fmt.Printf("%s  %s\n", rank, q.Q)
 	}
 	n := float64(len(questions))
-	fmt.Printf("\nrecall@3: %.2f  recall@5: %.2f  within 125 lines: %.2f  within 250 lines: %.2f  (%d questions)\n",
-		float64(hit3)/n, float64(hit5)/n, float64(hitBudget[0])/n, float64(hitBudget[1])/n, len(questions))
+	fmt.Printf("\nrecall@3: %.2f  recall@5: %.2f  recall@10: %.2f  within 125 lines: %.2f  within 250 lines: %.2f  (%d questions)\n",
+		float64(hit3)/n, float64(hit5)/n, float64(hit10)/n, float64(hitBudget[0])/n, float64(hitBudget[1])/n, len(questions))
 }
 
 func embed(chunks []string) ([][]float32, error) {
